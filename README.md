@@ -128,6 +128,7 @@ Open **http://localhost:3000** in your browser. The frontend proxies all `/api/*
 | `DATABASE_URL` | ✅ | PostgreSQL connection string (Supabase, Neon, Railway, or local) |
 | `SESSION_SECRET` | ✅ | Long random string to sign session cookies |
 | `ANTHROPIC_API_KEY` | ✅ | Anthropic Claude API key — [console.anthropic.com](https://console.anthropic.com) |
+| `ANTHROPIC_MODEL` | ❌ | Claude API model ID (default `claude-sonnet-4-6`) |
 | `ALLOWED_ORIGINS` | ✅ (production) | Comma-separated list of permitted frontend origins, e.g. `https://insightly.vercel.app` |
 | `NODE_ENV` | ✅ (production) | Set to `production` on hosted environments |
 | `PORT` | ❌ | API server port (default `8080`) |

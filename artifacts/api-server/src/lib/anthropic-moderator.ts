@@ -1,4 +1,5 @@
 import { anthropic } from "@workspace/integrations-anthropic-ai";
+import { logger } from "./logger";
 
 export interface TurnContext {
   product: string;
@@ -17,6 +18,24 @@ export interface TurnDecision {
 }
 
 const MAX_FOLLOW_UPS_PER_QUESTION = 2;
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+
+function fallbackTurn(ctx: TurnContext): TurnDecision {
+  const nextQuestion = ctx.questions[ctx.questionIndex + 1];
+  if (nextQuestion) {
+    return {
+      aiQuestion: nextQuestion,
+      action: "next_question",
+      isFinal: false,
+    };
+  }
+
+  return {
+    aiQuestion: "Thank you so much for your time today. This has been genuinely helpful, and I really appreciate you sharing your thoughts with me.",
+    action: "wrap_up",
+    isFinal: true,
+  };
+}
 
 export async function generateNextTurn(ctx: TurnContext): Promise<TurnDecision> {
   const remainingQuestions = ctx.questions.slice(ctx.questionIndex + 1);
@@ -92,12 +111,18 @@ Participant just responded: "${ctx.participantText}"
 Now decide: should you follow up on what they said, transition to the next research topic, or wrap up?
 Respond with JSON only. The "question" value must be plain spoken prose with no special characters, symbols, or formatting — it will be read aloud by a TTS voice.`;
 
-  const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 600,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  let message;
+  try {
+    message = await anthropic.messages.create({
+      model: ANTHROPIC_MODEL,
+      max_tokens: 600,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+  } catch (err) {
+    logger.error({ err, model: ANTHROPIC_MODEL }, "Anthropic turn generation failed");
+    return fallbackTurn(ctx);
+  }
 
   const block = message.content[0];
   const raw = block && block.type === "text" ? block.text : "";
@@ -168,11 +193,23 @@ Extract structured insights. Respond ONLY with strict JSON in this shape:
 
 Each array should contain 2-5 concise, specific, evidence-based bullets grounded in what the participant actually said. Recommendations should be actionable next steps for the product team.`;
 
-  const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 8192,
-    messages: [{ role: "user", content: prompt }],
-  });
+  let message;
+  try {
+    message = await anthropic.messages.create({
+      model: ANTHROPIC_MODEL,
+      max_tokens: 8192,
+      messages: [{ role: "user", content: prompt }],
+    });
+  } catch (err) {
+    logger.error({ err, model: ANTHROPIC_MODEL }, "Anthropic insight generation failed");
+    return {
+      summary: "The interview was completed, but AI insight generation was unavailable. Please check the Anthropic API key, model access, quota, and Render logs.",
+      painPoints: [],
+      userGoals: [],
+      featureRequests: [],
+      recommendations: [],
+    };
+  }
 
   const block = message.content[0];
   const raw = block && block.type === "text" ? block.text : "{}";
