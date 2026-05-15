@@ -154,8 +154,15 @@ export default function StudyDetail({ id }: { id: string }) {
       {
         onSuccess: (res) => {
           refetch();
-          if ((res.sent ?? 0) === 0) toast("No pending participants to invite.");
-          else toast.success(`Invites sent to ${res.sent} participant${res.sent === 1 ? "" : "s"}`);
+          const invites = (res.invites ?? []) as Array<{ delivered?: boolean; error?: string }>;
+          const failed = invites.filter((invite) => invite.delivered === false);
+          if (failed.length > 0) {
+            toast.error(failed[0]?.error ?? "Could not send invite email.");
+          } else if ((res.sent ?? 0) === 0) {
+            toast("No pending participants to invite.");
+          } else {
+            toast.success(`Invites sent to ${res.sent} participant${res.sent === 1 ? "" : "s"}`);
+          }
         },
         onError: () => toast.error("Could not send invites."),
       },

@@ -83,6 +83,15 @@ function inviteHtml(opts: {
 
 const router: IRouter = Router();
 
+function getFrontendOrigin(req: Parameters<Parameters<IRouter["post"]>[1]>[0]): string {
+  const configured =
+    process.env.FRONTEND_URL ??
+    process.env.PUBLIC_APP_URL ??
+    process.env.ALLOWED_ORIGINS?.split(",")[0];
+
+  return (configured ?? `${req.protocol}://${req.get("host")}`).trim().replace(/\/+$/, "");
+}
+
 function serializeParticipant(p: typeof participantsTable.$inferSelect) {
   return {
     id: p.id,
@@ -137,7 +146,7 @@ router.post("/studies/:studyId/send-invites", async (req, res) => {
     .where(eq(participantsTable.studyId, studyId));
   const toSend = pending.filter((p) => p.status === "pending");
 
-  const host = `${req.protocol}://${req.get("host")}`;
+  const host = getFrontendOrigin(req);
   const subject = `You're invited: ${study.title}`;
 
   const invites: { email: string; inviteUrl: string; delivered: boolean; error?: string }[] = [];

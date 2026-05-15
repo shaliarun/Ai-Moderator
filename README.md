@@ -130,6 +130,7 @@ Open **http://localhost:3000** in your browser. The frontend proxies all `/api/*
 | `ANTHROPIC_API_KEY` | ✅ | Anthropic Claude API key — [console.anthropic.com](https://console.anthropic.com) |
 | `ANTHROPIC_MODEL` | ❌ | Claude API model ID (default `claude-sonnet-4-6`) |
 | `ALLOWED_ORIGINS` | ✅ (production) | Comma-separated list of permitted frontend origins, e.g. `https://insightly.vercel.app` |
+| `FRONTEND_URL` | ✅ (production email) | Public frontend URL used in invite emails, e.g. `https://insightly.vercel.app` |
 | `NODE_ENV` | ✅ (production) | Set to `production` on hosted environments |
 | `PORT` | ❌ | API server port (default `8080`) |
 | `LIVEAVATAR_API_KEY` | ❌ | HeyGen API key for AI avatar video — [app.heygen.com](https://app.heygen.com) |
