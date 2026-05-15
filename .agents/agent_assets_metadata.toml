@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "q6W29WFZh_iFNyrsBjKFZ"
+uri = "file://artifacts/ux-moderator/src/assets/moderator.png"
+type = "image"
+title = "ai moderator portrait"

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: insightly-api
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build
+    startCommand: pnpm --filter @workspace/api-server run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false

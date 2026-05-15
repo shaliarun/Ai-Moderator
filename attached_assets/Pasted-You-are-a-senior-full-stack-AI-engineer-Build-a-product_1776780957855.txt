@@ -1,0 +1,215 @@
+You are a senior full-stack AI engineer. Build a production-ready MVP for a "UX Research AI Moderator" web application.
+
+## 🎯 Objective
+
+Create an AI-powered system that automates UX research operations including:
+
+1. Participant invitation & scheduling
+2. Confirmation tracking & rescheduling
+3. Interview session management
+4. AI voice-based moderation
+5. Session recording & transcription
+6. Research library creation
+
+---
+
+## 🧱 Tech Stack (MANDATORY)
+
+* Frontend: React (with simple clean UI)
+* Backend: Node.js (Express)
+* Database: PostgreSQL (or SQLite for MVP)
+* AI: Claude API (Anthropic)
+* Voice:
+
+  * STT: Whisper API or Google Speech-to-Text
+  * TTS: ElevenLabs API
+* Email: Nodemailer or SendGrid
+* Storage: Local + optional S3-compatible
+
+---
+
+## 🔐 Core Modules
+
+### 1. Interview Setup Module
+
+* Form for interviewer to define:
+
+  * Product / Topic
+  * Research goal
+  * Interview questions (list)
+  * Duration
+  * Available time slots
+* Save in database
+
+---
+
+### 2. Participant Invitation System
+
+* Upload participant emails (CSV or manual input)
+* Send email invitations with:
+
+  * Session details
+  * Available time slots
+  * Unique confirmation लिंक
+
+Email should include:
+
+* Accept button (choose slot)
+* Decline button
+* Reschedule option
+
+---
+
+### 3. Scheduling Engine
+
+* Track:
+
+  * Accepted participants
+  * Pending responses
+  * Declined participants
+* Allow participants to:
+
+  * Select available slot
+  * Suggest alternate time
+* Store responses in DB
+
+---
+
+### 4. Notification System
+
+* When ALL participants respond:
+
+  * Notify interviewer via email/dashboard:
+
+    * Confirmed attendees
+    * Declined
+    * Rescheduled requests
+
+---
+
+### 5. AI Voice Moderator (CRITICAL FEATURE)
+
+Build a voice-based interview agent:
+
+Flow:
+
+1. Start session
+2. AI greets participant
+3. Ask questions one by one (from predefined list)
+4. Listen to response (speech-to-text)
+5. Store response
+6. Ask follow-up questions dynamically using Claude
+
+Claude Prompt Logic:
+
+* Understand participant answer
+* Generate probing UX questions
+* Keep conversation natural
+
+---
+
+### 6. Recording & Transcription
+
+* Record:
+
+  * Full audio session
+* Convert to:
+
+  * Text transcript
+* Store:
+
+  * Timestamped responses
+  * Speaker labels
+
+---
+
+### 7. Research Library
+
+Create structured storage:
+
+* Session recordings
+* Transcripts
+* Extracted insights
+
+Use Claude to:
+
+* Summarize interviews
+* Extract:
+
+  * Pain points
+  * User goals
+  * Feature requests
+
+---
+
+## 🧠 AI PROMPT DESIGN (IMPORTANT)
+
+Use Claude for:
+
+### Interview Moderation Prompt:
+
+"You are a UX researcher conducting an interview about {product/topic}. Ask clear, unbiased, open-ended questions. Based on user responses, ask intelligent follow-up questions to uncover deeper insights, frustrations, and motivations."
+
+---
+
+### Insight Extraction Prompt:
+
+"Analyze this UX interview transcript. Extract key insights including user pain points, needs, behaviors, and actionable recommendations."
+
+---
+
+## 🔗 API Endpoints
+
+Create endpoints:
+
+* POST /create-study
+* POST /send-invites
+* GET /responses
+* POST /schedule
+* POST /start-interview
+* POST /save-response
+* GET /transcript
+* GET /insights
+
+---
+
+## 🎨 UI Requirements
+
+* Clean dashboard:
+
+  * Study creation
+  * Participant status
+  * Session tracking
+* Interview screen:
+
+  * Voice interaction UI
+  * Live transcript
+
+---
+
+## 🚀 Bonus Features (if possible)
+
+* Calendar integration (Google Calendar)
+* Reminder emails
+* Multi-language support (English + Hindi)
+
+---
+
+## 📦 Output Requirements
+
+* Fully working MVP
+* Clear folder structure
+* Environment variables setup guide
+* README with run instructions
+
+---
+
+## ⚠️ Constraints
+
+* Keep code modular
+* Use async APIs properly
+* Handle errors (email fail, voice fail, etc.)
+
+---
+
+Build this step-by-step and ensure each module works before moving forward.

@@ -1,0 +1,960 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: UX Research AI Moderator API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+  - name: studies
+  - name: participants
+  - name: invites
+  - name: sessions
+  - name: insights
+  - name: dashboard
+  - name: screener
+  - name: annotations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Top-level dashboard counts
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/recent-activity:
+    get:
+      operationId: getRecentActivity
+      tags: [dashboard]
+      summary: Recent events across studies
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+
+  /studies:
+    get:
+      operationId: listStudies
+      tags: [studies]
+      summary: List all studies
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Study"
+    post:
+      operationId: createStudy
+      tags: [studies]
+      summary: Create a new study
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateStudyInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Study"
+
+  /studies/{studyId}:
+    get:
+      operationId: getStudy
+      tags: [studies]
+      parameters:
+        - name: studyId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudyDetail"
+    patch:
+      operationId: updateStudy
+      tags: [studies]
+      summary: Update a study
+      parameters:
+        - name: studyId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateStudyInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Study"
+    delete:
+      operationId: deleteStudy
+      tags: [studies]
+      parameters:
+        - name: studyId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Deleted
+
+  /studies/{studyId}/participants:
+    get:
+      operationId: listParticipants
+      tags: [participants]
+      parameters:
+        - name: studyId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Participant"
+    post:
+      operationId: addParticipants
+      tags: [participants]
+      parameters:
+        - name: studyId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddParticipantsInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Participant"
+
+  /studies/{studyId}/send-invites:
+    post:
+      operationId: sendInvites
+      tags: [participants]
+      parameters:
+        - name: studyId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SendInvitesResult"
+
+  /studies/{studyId}/slots:
+    post:
+      operationId: addStudySlot
+      tags: [studies]
+      summary: Add a time slot to a study
+      parameters:
+        - name: studyId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddSlotInput"
+      responses:
+        "200":
+          description: Updated slots list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SlotsResult"
+
+  /studies/{studyId}/slots/{slotIndex}:
+    delete:
+      operationId: removeStudySlot
+      tags: [studies]
+      summary: Remove a time slot from a study
+      parameters:
+        - name: studyId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: slotIndex
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Updated slots list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SlotsResult"
+
+  /studies/{studyId}/screener:
+    get:
+      operationId: getScreener
+      tags: [screener]
+      summary: Get screener questions for a study
+      parameters:
+        - name: studyId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScreenerConfig"
+    put:
+      operationId: updateScreener
+      tags: [screener]
+      summary: Update screener questions for a study
+      parameters:
+        - name: studyId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScreenerConfig"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScreenerConfig"
+
+  /invites/{token}:
+    get:
+      operationId: getInvite
+      tags: [invites]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InviteDetail"
+    post:
+      operationId: respondToInvite
+      tags: [invites]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteResponseInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Participant"
+
+  /invites/{token}/screener-check:
+    post:
+      operationId: checkScreener
+      tags: [screener]
+      summary: Submit screener answers and check qualification
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScreenerCheckInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScreenerCheckResult"
+
+  /sessions:
+    get:
+      operationId: listSessions
+      tags: [sessions]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InterviewSession"
+
+  /sessions/start:
+    post:
+      operationId: startSession
+      tags: [sessions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartSessionInput"
+      responses:
+        "201":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStartResult"
+
+  /sessions/{sessionId}:
+    get:
+      operationId: getSession
+      tags: [sessions]
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionDetail"
+
+  /sessions/{sessionId}/turn:
+    post:
+      operationId: submitSessionTurn
+      tags: [sessions]
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionTurnInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionTurnResult"
+
+  /sessions/{sessionId}/end:
+    post:
+      operationId: endSession
+      tags: [sessions]
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterviewSession"
+
+  /sessions/{sessionId}/insights/generate:
+    post:
+      operationId: generateInsights
+      tags: [insights]
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionInsights"
+
+  /sessions/{sessionId}/turns/{turnId}/tags:
+    post:
+      operationId: addTurnTag
+      tags: [annotations]
+      summary: Add a tag to a transcript turn
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: turnId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TurnTagInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TurnTagResult"
+
+  /sessions/{sessionId}/turns/{turnId}/tags/{tag}:
+    delete:
+      operationId: removeTurnTag
+      tags: [annotations]
+      summary: Remove a tag from a transcript turn
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: turnId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: tag
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TurnTagResult"
+
+  /studies/{studyId}/insights:
+    get:
+      operationId: getStudyInsights
+      tags: [insights]
+      parameters:
+        - name: studyId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudyInsights"
+
+  /studies/{studyId}/tagged-turns:
+    get:
+      operationId: getStudyTaggedTurns
+      tags: [annotations]
+      summary: Get all turns with a specific tag across all sessions in a study
+      parameters:
+        - name: studyId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: tag
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaggedTurnsResult"
+
+components:
+  schemas:
+    AddSlotInput:
+      type: object
+      required: [slot]
+      properties:
+        slot: { type: string, format: date-time }
+
+    SlotsResult:
+      type: object
+      required: [slots]
+      properties:
+        slots:
+          type: array
+          items: { type: string, format: date-time }
+
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+
+    DashboardSummary:
+      type: object
+      required: [totalStudies, activeStudies, totalParticipants, completedSessions, pendingInvites, totalInsights]
+      properties:
+        totalStudies: { type: integer }
+        activeStudies: { type: integer }
+        totalParticipants: { type: integer }
+        completedSessions: { type: integer }
+        pendingInvites: { type: integer }
+        totalInsights: { type: integer }
+
+    ActivityItem:
+      type: object
+      required: [id, kind, message, createdAt]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [study_created, participant_added, invite_accepted, invite_declined, session_completed, insights_generated]
+        message: { type: string }
+        studyId: { type: string }
+        studyTitle: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    UpdateStudyInput:
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+        product: { type: string, minLength: 1 }
+        goal: { type: string }
+        durationMinutes: { type: integer, minimum: 5, maximum: 240 }
+        questions:
+          type: array
+          minItems: 1
+          items: { type: string, minLength: 1 }
+
+    CreateStudyInput:
+      type: object
+      required: [title, product, goal, durationMinutes, questions, slots]
+      properties:
+        title: { type: string, minLength: 1 }
+        product: { type: string, minLength: 1 }
+        goal: { type: string, minLength: 1 }
+        durationMinutes: { type: integer, minimum: 5, maximum: 240 }
+        questions:
+          type: array
+          minItems: 1
+          items: { type: string, minLength: 1 }
+        slots:
+          type: array
+          minItems: 1
+          items: { type: string, format: date-time }
+
+    ScreenerQuestion:
+      type: object
+      required: [id, text, type, disqualifyIf]
+      properties:
+        id: { type: string }
+        text: { type: string }
+        type:
+          type: string
+          enum: [yes_no, multiple_choice]
+        options:
+          type: array
+          items: { type: string }
+        disqualifyIf: { type: string }
+
+    ScreenerConfig:
+      type: object
+      required: [questions]
+      properties:
+        questions:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/ScreenerQuestion"
+
+    ScreenerAnswerItem:
+      type: object
+      required: [questionId, answer]
+      properties:
+        questionId: { type: string }
+        answer: { type: string }
+
+    ScreenerCheckInput:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScreenerAnswerItem"
+
+    ScreenerCheckResult:
+      type: object
+      required: [qualified]
+      properties:
+        qualified: { type: boolean }
+
+    Study:
+      type: object
+      required: [id, title, product, goal, durationMinutes, questions, slots, status, createdAt, participantCount, completedSessionCount]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        product: { type: string }
+        goal: { type: string }
+        durationMinutes: { type: integer }
+        questions:
+          type: array
+          items: { type: string }
+        slots:
+          type: array
+          items: { type: string, format: date-time }
+        status: { type: string, enum: [draft, active, completed] }
+        createdAt: { type: string, format: date-time }
+        participantCount: { type: integer }
+        completedSessionCount: { type: integer }
+        videoStatus:
+          type: string
+          enum: [none, generating, ready]
+        questionVideos:
+          type: object
+          properties:
+            greetingText: { type: string }
+            greeting: { type: string }
+            questions:
+              type: array
+              items: { type: string }
+        screenerQuestions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScreenerQuestion"
+
+    StudyDetail:
+      allOf:
+        - $ref: "#/components/schemas/Study"
+        - type: object
+          required: [participants, sessions]
+          properties:
+            participants:
+              type: array
+              items: { $ref: "#/components/schemas/Participant" }
+            sessions:
+              type: array
+              items: { $ref: "#/components/schemas/InterviewSession" }
+
+    AddParticipantsInput:
+      type: object
+      required: [emails]
+      properties:
+        emails:
+          type: array
+          minItems: 1
+          items: { type: string, format: email }
+
+    Participant:
+      type: object
+      required: [id, studyId, email, status, inviteToken, createdAt]
+      properties:
+        id: { type: string }
+        studyId: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
+        status:
+          type: string
+          enum: [pending, invited, accepted, declined, rescheduled, completed]
+        inviteToken: { type: string }
+        chosenSlot: { type: string, format: date-time }
+        suggestedSlot: { type: string, format: date-time }
+        respondedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        screenerPassed: { type: boolean }
+        screenerAnswers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScreenerAnswerItem"
+
+    SendInvitesResult:
+      type: object
+      required: [sent, invites]
+      properties:
+        sent: { type: integer }
+        invites:
+          type: array
+          items:
+            type: object
+            required: [email, inviteUrl]
+            properties:
+              email: { type: string }
+              inviteUrl: { type: string }
+
+    InviteDetail:
+      type: object
+      required: [participant, study]
+      properties:
+        participant: { $ref: "#/components/schemas/Participant" }
+        study: { $ref: "#/components/schemas/Study" }
+
+    InviteResponseInput:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [accept, decline, reschedule]
+        chosenSlot: { type: string, format: date-time }
+        suggestedSlot: { type: string, format: date-time }
+        name: { type: string }
+
+    StartSessionInput:
+      type: object
+      required: [studyId]
+      properties:
+        studyId: { type: string }
+        participantId: { type: string }
+
+    InterviewSession:
+      type: object
+      required: [id, studyId, status, createdAt, turnCount]
+      properties:
+        id: { type: string }
+        studyId: { type: string }
+        studyTitle: { type: string }
+        participantId: { type: string }
+        participantEmail: { type: string }
+        status: { type: string, enum: [active, completed] }
+        createdAt: { type: string, format: date-time }
+        endedAt: { type: string, format: date-time }
+        turnCount: { type: integer }
+        durationSeconds: { type: integer }
+        questionIndex: { type: integer }
+        aiTurnCount: { type: integer }
+        participantTurnCount: { type: integer }
+
+    TranscriptTurn:
+      type: object
+      required: [id, sessionId, speaker, text, createdAt]
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        speaker: { type: string, enum: [ai, participant] }
+        text: { type: string }
+        createdAt: { type: string, format: date-time }
+        tags:
+          type: array
+          items: { type: string }
+
+    TurnTagInput:
+      type: object
+      required: [tag]
+      properties:
+        tag: { type: string }
+
+    TurnTagResult:
+      type: object
+      required: [turnId, tags]
+      properties:
+        turnId: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+
+    SessionStartResult:
+      type: object
+      required: [session, greeting, firstQuestion]
+      properties:
+        session: { $ref: "#/components/schemas/InterviewSession" }
+        greeting: { type: string }
+        firstQuestion: { type: string }
+
+    SessionDetail:
+      type: object
+      required: [session, transcript, study]
+      properties:
+        session: { $ref: "#/components/schemas/InterviewSession" }
+        transcript:
+          type: array
+          items: { $ref: "#/components/schemas/TranscriptTurn" }
+        study: { $ref: "#/components/schemas/Study" }
+        insights: { $ref: "#/components/schemas/SessionInsights" }
+
+    SessionTurnInput:
+      type: object
+      required: [participantText]
+      properties:
+        participantText: { type: string, minLength: 1 }
+
+    SessionTurnResult:
+      type: object
+      required: [aiQuestion, isFinal, transcript]
+      properties:
+        aiQuestion: { type: string }
+        isFinal: { type: boolean }
+        transcript:
+          type: array
+          items: { $ref: "#/components/schemas/TranscriptTurn" }
+
+    SessionInsights:
+      type: object
+      required: [id, sessionId, summary, painPoints, userGoals, featureRequests, recommendations, createdAt]
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        summary: { type: string }
+        painPoints:
+          type: array
+          items: { type: string }
+        userGoals:
+          type: array
+          items: { type: string }
+        featureRequests:
+          type: array
+          items: { type: string }
+        recommendations:
+          type: array
+          items: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    TaggedTurn:
+      type: object
+      required: [turnId, sessionId, tag, text, speaker, createdAt, participantEmail]
+      properties:
+        turnId: { type: string }
+        sessionId: { type: string }
+        tag: { type: string }
+        text: { type: string }
+        speaker: { type: string }
+        createdAt: { type: string, format: date-time }
+        participantEmail: { type: string }
+
+    TaggedTurnsResult:
+      type: object
+      required: [studyId, tag, turns]
+      properties:
+        studyId: { type: string }
+        tag: { type: string, nullable: true }
+        turns:
+          type: array
+          items: { $ref: "#/components/schemas/TaggedTurn" }
+
+    TagSummaryItem:
+      type: object
+      required: [tag, count]
+      properties:
+        tag: { type: string }
+        count: { type: integer }
+
+    TopQuote:
+      type: object
+      required: [turnId, sessionId, text, participantEmail]
+      properties:
+        turnId: { type: string }
+        sessionId: { type: string }
+        text: { type: string }
+        participantEmail: { type: string }
+
+    StudyMetrics:
+      type: object
+      required: [completionRate, avgDurationSeconds, avgTalkRatio, totalSessions, completedSessions]
+      properties:
+        completionRate: { type: number }
+        avgDurationSeconds: { type: number }
+        avgTalkRatio: { type: number }
+        totalSessions: { type: integer }
+        completedSessions: { type: integer }
+
+    StudyInsights:
+      type: object
+      required: [studyId, sessionInsights]
+      properties:
+        studyId: { type: string }
+        sessionInsights:
+          type: array
+          items: { $ref: "#/components/schemas/SessionInsights" }
+        metrics: { $ref: "#/components/schemas/StudyMetrics" }
+        tagSummary:
+          type: array
+          items: { $ref: "#/components/schemas/TagSummaryItem" }
+        topQuotes:
+          type: array
+          items: { $ref: "#/components/schemas/TopQuote" }
+        themeFrequency:
+          type: array
+          items:
+            type: object
+            required: [theme, count]
+            properties:
+              theme: { type: string }
+              count: { type: integer }
