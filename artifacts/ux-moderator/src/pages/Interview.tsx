@@ -49,6 +49,19 @@ function getSR(): SRCtor | null {
 
 /* ── Language detection & voice picking ───────────────────── */
 const LANG_DETECT: Array<{ words: string[]; code: string }> = [
+  { words: ["tamil", "தமிழ்", "tamizh"], code: "ta-IN" },
+  { words: ["telugu", "తెలుగు"], code: "te-IN" },
+  { words: ["marathi", "मराठी"], code: "mr-IN" },
+  { words: ["bengali", "bangla", "বাংলা"], code: "bn-IN" },
+  { words: ["gujarati", "ગુજરાતી"], code: "gu-IN" },
+  { words: ["kannada", "ಕನ್ನಡ"], code: "kn-IN" },
+  { words: ["malayalam", "മലയാളം"], code: "ml-IN" },
+  { words: ["punjabi", "ਪੰਜਾਬੀ"], code: "pa-IN" },
+  { words: ["urdu", "اردو"], code: "ur-IN" },
+  { words: ["russian", "русский"], code: "ru-RU" },
+  { words: ["dutch", "nederlands"], code: "nl-NL" },
+  { words: ["turkish", "türkçe", "turkce"], code: "tr-TR" },
+  { words: ["indonesian", "bahasa indonesia"], code: "id-ID" },
   { words: ["hindi","हिंदी","हिन्दी","hindi mein","hindi me"],          code: "hi-IN" },
   { words: ["english","अंग्रेज़ी","angrezi"],                           code: "en-US" },
   { words: ["french","français","francais"],                            code: "fr-FR" },
@@ -65,7 +78,7 @@ const LANG_DETECT: Array<{ words: string[]; code: string }> = [
 const REQUEST_RE = /\b(speak|change|switch|talk|use|please|can you|could you|बोलो|बोलिए|बात करो|में बोलो|में बात|mein|me bolo)\b/i;
 
 function detectLangChange(text: string): string | null {
-  if (!REQUEST_RE.test(text)) return null;
+  if (!REQUEST_RE.test(text) && !/\blanguage\b/i.test(text)) return null;
   const lower = text.toLowerCase();
   for (const { words, code } of LANG_DETECT) {
     if (words.some((w) => lower.includes(w.toLowerCase()))) return code;
@@ -83,12 +96,28 @@ function detectLangFromScript(text: string): string | null {
   if (chars.length < 4) return null;
   const n = chars.length;
   const devanagari = (chars.match(/[\u0900-\u097F]/g) ?? []).length;
+  const bengali    = (chars.match(/[\u0980-\u09FF]/g) ?? []).length;
+  const gurmukhi   = (chars.match(/[\u0A00-\u0A7F]/g) ?? []).length;
+  const gujarati   = (chars.match(/[\u0A80-\u0AFF]/g) ?? []).length;
+  const tamil      = (chars.match(/[\u0B80-\u0BFF]/g) ?? []).length;
+  const telugu     = (chars.match(/[\u0C00-\u0C7F]/g) ?? []).length;
+  const kannada    = (chars.match(/[\u0C80-\u0CFF]/g) ?? []).length;
+  const malayalam  = (chars.match(/[\u0D00-\u0D7F]/g) ?? []).length;
   const arabic     = (chars.match(/[\u0600-\u06FF]/g) ?? []).length;
+  const cyrillic   = (chars.match(/[\u0400-\u04FF]/g) ?? []).length;
   const hangul     = (chars.match(/[\uAC00-\uD7AF]/g) ?? []).length;
   const cjk        = (chars.match(/[\u4E00-\u9FFF\u3040-\u30FF]/g) ?? []).length;
   const latin      = (chars.match(/[a-zA-Z]/g) ?? []).length;
   if (devanagari / n > 0.25) return "hi-IN";
+  if (bengali    / n > 0.25) return "bn-IN";
+  if (gurmukhi   / n > 0.25) return "pa-IN";
+  if (gujarati   / n > 0.25) return "gu-IN";
+  if (tamil      / n > 0.25) return "ta-IN";
+  if (telugu     / n > 0.25) return "te-IN";
+  if (kannada    / n > 0.25) return "kn-IN";
+  if (malayalam  / n > 0.25) return "ml-IN";
   if (arabic     / n > 0.25) return "ar-SA";
+  if (cyrillic   / n > 0.25) return "ru-RU";
   if (hangul     / n > 0.25) return "ko-KR";
   if (cjk        / n > 0.25) return "zh-CN";
   if (latin      / n > 0.50) return "en-US";
@@ -192,6 +221,9 @@ function splitSentences(text: string): string[] {
 }
 
 const LANG_LABEL: Record<string, string> = {
+  "ta-IN": "தமிழ்", "te-IN": "తెలుగు", "mr-IN": "मराठी", "bn-IN": "বাংলা",
+  "gu-IN": "ગુજરાતી", "kn-IN": "ಕನ್ನಡ", "ml-IN": "മലയാളം", "pa-IN": "ਪੰਜਾਬੀ",
+  "ur-IN": "اردو", "ru-RU": "Русский", "nl-NL": "Nederlands", "tr-TR": "Türkçe", "id-ID": "Indonesia",
   "en-US": "English", "en-IN": "English (IN)", "hi-IN": "हिंदी",
   "fr-FR": "Français", "es-ES": "Español", "de-DE": "Deutsch",
   "ja-JP": "日本語", "zh-CN": "中文", "ko-KR": "한국어",
@@ -559,6 +591,11 @@ export default function Interview({ sessionId }: { sessionId: string }) {
 
   /* ── Text-to-speech ─────────────────────────────────────── */
   const speakText = useCallback(async (text: string): Promise<void> => {
+    const responseLang = detectLangFromScript(text);
+    if (responseLang && responseLang !== voiceLangRef.current) {
+      setVoiceLang(responseLang);
+      voiceLangRef.current = responseLang;
+    }
     if (endedRef.current) return;
     // Ensure mic is fully off before we start speaking — prevents the
     // recognition engine from picking up speaker audio as participant input.
@@ -680,7 +717,8 @@ export default function Interview({ sessionId }: { sessionId: string }) {
     // 2) Auto-detect from the Unicode script of the recognised text
     //    e.g. Devanagari chars → hi-IN, Latin chars → en-US
     const scriptLang   = !explicitLang ? detectLangFromScript(text) : null;
-    const newLang      = explicitLang ?? scriptLang;
+    const autoLang     = scriptLang === "en-US" && voiceLangRef.current !== "en-US" ? null : scriptLang;
+    const newLang      = explicitLang ?? autoLang;
     if (newLang && newLang !== voiceLangRef.current) {
       setVoiceLang(newLang);
       voiceLangRef.current = newLang;
@@ -691,7 +729,7 @@ export default function Interview({ sessionId }: { sessionId: string }) {
     setPhase("thinking");
     setPartial("");
     submitMut.mutate(
-      { sessionId, data: { participantText: text } },
+      { sessionId, data: { participantText: text, preferredLanguage: newLang ?? voiceLangRef.current } },
       {
         onSuccess: () => {
           submittingRef.current = false;
