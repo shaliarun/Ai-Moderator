@@ -304,6 +304,7 @@ export interface SessionDetail {
 export interface SessionTurnInput {
   /** @minLength 1 */
   participantText: string;
+  preferredLanguage?: string;
 }
 
 export interface SessionTurnResult {

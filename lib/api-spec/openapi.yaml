@@ -855,6 +855,7 @@ components:
       required: [participantText]
       properties:
         participantText: { type: string, minLength: 1 }
+        preferredLanguage: { type: string, description: Browser-selected language code for the next AI reply, such as hi-IN. }
 
     SessionTurnResult:
       type: object

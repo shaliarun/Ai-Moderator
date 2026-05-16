@@ -628,6 +628,7 @@ export const SubmitSessionTurnParams = zod.object({
 
 export const SubmitSessionTurnBody = zod.object({
   participantText: zod.string().min(1),
+  preferredLanguage: zod.string().optional(),
 });
 
 export const SubmitSessionTurnResponse = zod.object({

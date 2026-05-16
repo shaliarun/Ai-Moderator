@@ -231,6 +231,7 @@ router.post("/sessions/:sessionId/turn", async (req, res) => {
     followUpsAsked: session.followUpsAsked,
     history: history.map((h) => ({ speaker: h.speaker as "ai" | "participant", text: h.text })),
     participantText: body.participantText,
+    preferredLanguage: body.preferredLanguage,
   });
 
   await db.insert(transcriptTurnsTable).values({
