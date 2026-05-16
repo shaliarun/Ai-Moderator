@@ -18,7 +18,7 @@ An AI-powered UX research platform. Researchers create studies, invite participa
 | AI Moderator | Anthropic Claude (`claude-sonnet-4-6`) |
 | Voice I/O | Browser Web Speech API (STT + TTS) |
 | Avatar videos | HeyGen API (optional) |
-| Email | SMTP / Gmail |
+| Email | Resend API / SMTP fallback |
 
 ---
 
@@ -49,6 +49,9 @@ This is the standard split-deployment setup. The frontend is a static React buil
    | `ANTHROPIC_API_KEY` | Your Anthropic key |
    | `SESSION_SECRET` | Any long random string (`openssl rand -hex 32`) |
    | `ALLOWED_ORIGINS` | Your Vercel URL — fill in after step 3 (e.g. `https://insightly.vercel.app`) |
+   | `FRONTEND_URL` | Your Vercel URL, used in invite email links |
+   | `RESEND_API_KEY` | Your Resend API key |
+   | `EMAIL_FROM` | Verified sender, e.g. `Insightly <onboarding@resend.dev>` |
    | `NODE_ENV` | `production` |
 
 3. Deploy. Your API will be live at something like `https://insightly-api.onrender.com`.
@@ -139,6 +142,13 @@ Open **http://localhost:3000** in your browser. The frontend proxies all `/api/*
 | `SMTP_HOST` | ❌ | SMTP server hostname (default `smtp.gmail.com`) |
 | `SMTP_PORT` | ❌ | SMTP server port (default `587`) |
 | `SMTP_SECURE` | ❌ | Use TLS — set `true` for port 465 |
+
+For Render Free, prefer Resend over SMTP:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `RESEND_API_KEY` | optional | Resend API key for invite emails over HTTPS. |
+| `EMAIL_FROM` | optional | Sender address used for invite emails, e.g. `Insightly <onboarding@resend.dev>`. Required with `RESEND_API_KEY`. |
 
 ### Frontend (Vercel)
 

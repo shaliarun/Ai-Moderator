@@ -5,7 +5,73 @@ import { AddParticipantsBody, RespondToInviteBody } from "@workspace/api-zod";
 import type { ScreenerQuestion } from "@workspace/db";
 
 /* ── Email transport ──────────────────────────────────────── */
-async function sendEmail(opts: { to: string; subject: string; html: string }): Promise<void> {
+type EmailOptions = { to: string; subject: string; html: string };
+
+async function responseErrorMessage(resp: Response): Promise<string> {
+  const body = await resp.text();
+  if (!body) return `Email API ${resp.status}`;
+
+  try {
+    const parsed = JSON.parse(body) as { message?: string; error?: string; name?: string };
+    return parsed.message ?? parsed.error ?? parsed.name ?? body.slice(0, 200);
+  } catch {
+    return body.slice(0, 200);
+  }
+}
+
+async function sendResendEmail(opts: EmailOptions): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.EMAIL_FROM ?? process.env.RESEND_FROM;
+
+  if (!apiKey || !from) {
+    throw new Error("Resend email is not configured. Set RESEND_API_KEY and EMAIL_FROM.");
+  }
+
+  const resp = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: opts.to,
+      subject: opts.subject,
+      html: opts.html,
+    }),
+  });
+
+  if (!resp.ok) {
+    throw new Error(await responseErrorMessage(resp));
+  }
+}
+
+async function sendSmtpEmail(opts: EmailOptions): Promise<void> {
+  const smtpUser = process.env.SMTP_USER;
+  const smtpPass = process.env.SMTP_PASS;
+  if (!smtpUser || !smtpPass) {
+    throw new Error(
+      "Email not configured. Set RESEND_API_KEY and EMAIL_FROM, or set SMTP_USER and SMTP_PASS.",
+    );
+  }
+
+  const nodemailer = await import("nodemailer");
+  const transporter = nodemailer.default.createTransport({
+    host: process.env.SMTP_HOST ?? "smtp.gmail.com",
+    port: Number(process.env.SMTP_PORT ?? "587"),
+    secure: process.env.SMTP_SECURE === "true",
+    auth: { user: smtpUser, pass: smtpPass },
+  });
+
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM ?? smtpUser,
+    to: opts.to,
+    subject: opts.subject,
+    html: opts.html,
+  });
+}
+
+async function sendEmail(opts: EmailOptions): Promise<void> {
   if (process.env.REPL_ID) {
     // On Replit: use the managed Google-Mail connector
     const { ReplitConnectors } = await import("@replit/connectors-sdk");
@@ -35,27 +101,12 @@ async function sendEmail(opts: { to: string; subject: string; html: string }): P
     return;
   }
 
-  // Local: use SMTP via nodemailer
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPass = process.env.SMTP_PASS;
-  if (!smtpUser || !smtpPass) {
-    throw new Error(
-      "Email not configured. Set SMTP_USER and SMTP_PASS in .env (e.g. Gmail address + App Password).",
-    );
+  if (process.env.RESEND_API_KEY) {
+    await sendResendEmail(opts);
+    return;
   }
-  const nodemailer = await import("nodemailer");
-  const transporter = nodemailer.default.createTransport({
-    host: process.env.SMTP_HOST ?? "smtp.gmail.com",
-    port: Number(process.env.SMTP_PORT ?? "587"),
-    secure: process.env.SMTP_SECURE === "true",
-    auth: { user: smtpUser, pass: smtpPass },
-  });
-  await transporter.sendMail({
-    from: smtpUser,
-    to: opts.to,
-    subject: opts.subject,
-    html: opts.html,
-  });
+
+  await sendSmtpEmail(opts);
 }
 
 
@@ -179,7 +230,7 @@ router.post("/studies/:studyId/send-invites", async (req, res) => {
   }
 
   const sent = invites.filter((i) => i.delivered).length;
-  req.log.info({ studyId, sent, attempted: invites.length }, "Invites processed via Gmail");
+  req.log.info({ studyId, sent, attempted: invites.length }, "Invites processed via email transport");
   res.json({ sent, invites });
 });
 
