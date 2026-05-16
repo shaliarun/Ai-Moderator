@@ -9,7 +9,7 @@ A workspace for UX researchers to run automated remote interviews. Researchers c
 - **API** (`artifacts/api-server`): Express + Drizzle + Zod, exposed at `/api/*`.
 - **DB** (`lib/db`): PostgreSQL via Drizzle ORM. Tables: `studies`, `participants`, `sessions`, `transcript_turns`, `insights`. IDs are nanoid strings.
 - **API contract** (`lib/api-spec/openapi.yaml`) is the source of truth; client + zod schemas are generated into `lib/api-client-react` and `lib/api-zod`.
-- **AI** (`lib/integrations-anthropic-ai`): Replit AI Integrations proxy for Anthropic. Model used: `claude-sonnet-4-6`.
+- **AI** (`artifacts/api-server/src/lib/anthropic-moderator.ts`): OpenAI Responses API is used first for interview turns and insights, with Anthropic and local fallbacks available.
 
 ## Key flows
 

@@ -1,4 +1,3 @@
-import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { logger } from "./logger";
 
 export interface TurnContext {
@@ -17,10 +16,233 @@ export interface TurnDecision {
   isFinal: boolean;
 }
 
+export interface InsightResult {
+  summary: string;
+  painPoints: string[];
+  userGoals: string[];
+  featureRequests: string[];
+  recommendations: string[];
+}
+
 const MAX_FOLLOW_UPS_PER_QUESTION = 2;
-const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+const DEFAULT_OPENAI_MODELS = [
+  "gpt-5.4-mini",
+  "gpt-5-mini",
+  "gpt-4.1-mini",
+];
+const DEFAULT_ANTHROPIC_MODELS = [
+  "claude-sonnet-4-20250514",
+  "claude-3-5-haiku-20241022",
+  "claude-3-haiku-20240307",
+];
+const OPENAI_MODEL = process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODELS[0]!;
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? DEFAULT_ANTHROPIC_MODELS[0]!;
+type AiTextRequest = { system?: string; input: string; maxOutputTokens: number };
+type AnthropicMessageParams = {
+  max_tokens: number;
+  system?: string;
+  messages: Array<{ role: "user"; content: string }>;
+};
+type AnthropicTextMessage = { content: Array<{ type: string; text?: string }> };
+
+function configuredOpenAIModels(): string[] {
+  const configured = [
+    OPENAI_MODEL,
+    ...(process.env.OPENAI_FALLBACK_MODELS ?? "").split(","),
+    ...DEFAULT_OPENAI_MODELS,
+  ];
+
+  return [...new Set(configured.map((model) => model.trim()).filter(Boolean))];
+}
+
+function configuredAnthropicModels(): string[] {
+  const configured = [
+    ANTHROPIC_MODEL,
+    ...(process.env.ANTHROPIC_FALLBACK_MODELS ?? "").split(","),
+    ...DEFAULT_ANTHROPIC_MODELS,
+  ];
+
+  return [...new Set(configured.map((model) => model.trim()).filter(Boolean))];
+}
+
+function getErrorStatus(err: unknown): number | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const candidate = err as { status?: unknown; statusCode?: unknown };
+  return typeof candidate.status === "number"
+    ? candidate.status
+    : typeof candidate.statusCode === "number"
+      ? candidate.statusCode
+      : undefined;
+}
+
+function isRetryableProviderError(err: unknown): boolean {
+  const status = getErrorStatus(err);
+  return status === undefined || status === 408 || status === 409 || status === 429 || status >= 500;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function createAnthropicMessageWithFallback(
+  params: Omit<AnthropicMessageParams, "model">,
+  logLabel: string,
+): Promise<{ message: AnthropicTextMessage; model: string }> {
+  let lastError: unknown;
+  const hasAnthropicKey = Boolean(process.env.ANTHROPIC_API_KEY || process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY);
+  if (!hasAnthropicKey) {
+    throw new Error("Anthropic is not configured.");
+  }
+
+  const { anthropic } = await import("@workspace/integrations-anthropic-ai");
+
+  for (const model of configuredAnthropicModels()) {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        const message = await anthropic.messages.create({ ...params, model }) as AnthropicTextMessage;
+        return { message, model };
+      } catch (err) {
+        lastError = err;
+        logger.warn({ err, model, attempt }, `${logLabel} failed`);
+
+        if (!isRetryableProviderError(err)) break;
+        await wait(350 * attempt);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+function openAIError(message: string, status?: number): Error {
+  const err = new Error(message) as Error & { status?: number };
+  err.status = status;
+  return err;
+}
+
+async function openAIResponseError(resp: Response): Promise<Error> {
+  const body = await resp.text();
+  if (!body) return openAIError(`OpenAI API ${resp.status}`, resp.status);
+
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string; code?: string }; message?: string };
+    return openAIError(parsed.error?.message ?? parsed.message ?? body.slice(0, 200), resp.status);
+  } catch {
+    return openAIError(body.slice(0, 200), resp.status);
+  }
+}
+
+function extractOpenAIText(data: unknown): string {
+  if (!data || typeof data !== "object") return "";
+  const response = data as {
+    output_text?: unknown;
+    output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+    error?: { message?: string };
+  };
+
+  if (typeof response.error?.message === "string") {
+    throw new Error(response.error.message);
+  }
+
+  if (typeof response.output_text === "string") return response.output_text;
+
+  return (response.output ?? [])
+    .flatMap((item) => item.content ?? [])
+    .map((content) => content.text ?? "")
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+async function createOpenAIText(model: string, req: AiTextRequest): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OpenAI is not configured.");
+
+  const resp = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      instructions: req.system,
+      input: req.input,
+      max_output_tokens: req.maxOutputTokens,
+    }),
+  });
+
+  if (!resp.ok) {
+    throw await openAIResponseError(resp);
+  }
+
+  const data = await resp.json();
+  return extractOpenAIText(data);
+}
+
+async function createAITextWithFallback(req: AiTextRequest, logLabel: string): Promise<{ text: string; provider: string; model: string }> {
+  let lastError: unknown;
+
+  if (process.env.OPENAI_API_KEY) {
+    for (const model of configuredOpenAIModels()) {
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          const text = await createOpenAIText(model, req);
+          if (text.trim()) return { text, provider: "openai", model };
+          throw openAIError("OpenAI returned an empty response.");
+        } catch (err) {
+          lastError = err;
+          logger.warn({ err, model, attempt }, `${logLabel} failed with OpenAI`);
+
+          if (!isRetryableProviderError(err)) break;
+          await wait(350 * attempt);
+        }
+      }
+    }
+  }
+
+  try {
+    const { message, model } = await createAnthropicMessageWithFallback({
+      max_tokens: req.maxOutputTokens,
+      ...(req.system ? { system: req.system } : {}),
+      messages: [{ role: "user", content: req.input }],
+    }, logLabel);
+    const block = message.content[0];
+    const text = block && block.type === "text" ? block.text ?? "" : "";
+    if (text.trim()) return { text, provider: "anthropic", model };
+  } catch (err) {
+    lastError = err;
+    logger.warn({ err, models: configuredAnthropicModels() }, `${logLabel} failed with Anthropic`);
+  }
+
+  throw lastError ?? new Error(`${logLabel} failed with every AI provider.`);
+}
 
 function fallbackTurn(ctx: TurnContext): TurnDecision {
+  const participantText = ctx.participantText.trim();
+  const canFollowUp = ctx.followUpsAsked < MAX_FOLLOW_UPS_PER_QUESTION;
+
+  if (canFollowUp && participantText.length > 0) {
+    const lower = participantText.toLowerCase();
+    const isVeryShort = participantText.split(/\s+/).filter(Boolean).length < 8;
+    const isNegative =
+      /\b(not good|not working|bad|difficult|hard|frustrating|problem|issue|struggle|annoying|poor|slow|confusing|hate|avoid)\b/.test(lower);
+    const wantsSomething =
+      /\b(want|need|wish|prefer|expect|should|could|better|improve|missing)\b/.test(lower);
+
+    return {
+      aiQuestion: isNegative
+        ? "I hear you, that does not sound like a good experience. What part of it creates the biggest problem for you?"
+        : wantsSomething
+          ? "That is useful to hear. What would make that feel better or easier for you?"
+          : isVeryShort
+            ? "Got it. Could you tell me a bit more about what happened there?"
+            : "That is helpful to know. Could you share a specific example of that?",
+      action: "follow_up",
+      isFinal: false,
+    };
+  }
+
   const nextQuestion = ctx.questions[ctx.questionIndex + 1];
   if (nextQuestion) {
     return {
@@ -111,21 +333,20 @@ Participant just responded: "${ctx.participantText}"
 Now decide: should you follow up on what they said, transition to the next research topic, or wrap up?
 Respond with JSON only. The "question" value must be plain spoken prose with no special characters, symbols, or formatting — it will be read aloud by a TTS voice.`;
 
-  let message;
+  let raw = "";
   try {
-    message = await anthropic.messages.create({
-      model: ANTHROPIC_MODEL,
-      max_tokens: 600,
+    ({ text: raw } = await createAITextWithFallback({
+      maxOutputTokens: 600,
       system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    });
+      input: userPrompt,
+    }, "AI turn generation"));
   } catch (err) {
-    logger.error({ err, model: ANTHROPIC_MODEL }, "Anthropic turn generation failed");
+    logger.error(
+      { err, openAIModels: configuredOpenAIModels(), anthropicModels: configuredAnthropicModels() },
+      "All AI turn generation attempts failed",
+    );
     return fallbackTurn(ctx);
   }
-
-  const block = message.content[0];
-  const raw = block && block.type === "text" ? block.text : "";
 
   let parsed: { action: string; question: string } | null = null;
   try {
@@ -136,18 +357,7 @@ Respond with JSON only. The "question" value must be plain spoken prose with no 
   }
 
   if (!parsed || typeof parsed.question !== "string" || parsed.question.length === 0) {
-    if (!isLastQuestion) {
-      return {
-        aiQuestion: ctx.questions[ctx.questionIndex + 1]!,
-        action: "next_question",
-        isFinal: false,
-      };
-    }
-    return {
-      aiQuestion: "Thank you so much for your time today — this has been genuinely helpful. I really appreciate you sharing all of this with me.",
-      action: "wrap_up",
-      isFinal: true,
-    };
+    return fallbackTurn(ctx);
   }
 
   let action = parsed.action as "follow_up" | "next_question" | "wrap_up";
@@ -161,17 +371,76 @@ Respond with JSON only. The "question" value must be plain spoken prose with no 
   };
 }
 
+function uniqueNonEmpty(items: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const item of items) {
+    const cleaned = item.trim().replace(/\s+/g, " ");
+    if (!cleaned || seen.has(cleaned.toLowerCase())) continue;
+    seen.add(cleaned.toLowerCase());
+    result.push(cleaned);
+  }
+
+  return result;
+}
+
+function fallbackInsightsFromTranscript(
+  product: string,
+  goal: string,
+  history: { speaker: "ai" | "participant"; text: string }[],
+): InsightResult {
+  const participantTexts = history
+    .filter((turn) => turn.speaker === "participant")
+    .map((turn) => turn.text.trim())
+    .filter(Boolean);
+  const combined = participantTexts.join(" ");
+  const negative = participantTexts.filter((text) =>
+    /\b(not good|not working|bad|difficult|hard|frustrating|problem|issue|struggle|annoying|poor|slow|confusing|hate|avoid)\b/i.test(text),
+  );
+  const wants = participantTexts.filter((text) =>
+    /\b(want|need|wish|prefer|expect|should|could|better|improve|missing|feature)\b/i.test(text),
+  );
+
+  const painPoints = uniqueNonEmpty([
+    ...negative.map((text) => `Participant reported a difficult experience: "${text.slice(0, 140)}"`),
+    participantTexts.length === 0
+      ? "No participant answers were captured in the transcript."
+      : "The transcript needs deeper probing because some answers are short or low detail.",
+  ]).slice(0, 5);
+
+  const userGoals = uniqueNonEmpty([
+    ...wants.map((text) => `Participant indicated a desired improvement: "${text.slice(0, 140)}"`),
+    `Understand whether ${product} supports the participant's current workflow and expectations.`,
+    `Identify what would make the experience feel successful for the participant.`,
+  ]).slice(0, 5);
+
+  const featureRequests = uniqueNonEmpty(
+    wants.map((text) => `Explore product changes related to: "${text.slice(0, 140)}"`),
+  ).slice(0, 5);
+
+  const recommendations = uniqueNonEmpty([
+    "Run a follow-up interview that asks for concrete examples, frequency, and impact of each problem.",
+    "Review the shortest participant answers and add moderator follow-ups where the underlying reason is unclear.",
+    `Compare these findings against the study goal: ${goal}`,
+  ]).slice(0, 5);
+
+  return {
+    summary: participantTexts.length > 0
+      ? `The participant discussed their experience with ${product}. Key captured input included: "${combined.slice(0, 220)}${combined.length > 220 ? "..." : ""}"`
+      : `The transcript for ${product} did not contain participant answers yet, so only a basic analysis could be produced.`,
+    painPoints,
+    userGoals,
+    featureRequests,
+    recommendations,
+  };
+}
+
 export async function generateInsightsFromTranscript(
   product: string,
   goal: string,
   history: { speaker: "ai" | "participant"; text: string }[],
-): Promise<{
-  summary: string;
-  painPoints: string[];
-  userGoals: string[];
-  featureRequests: string[];
-  recommendations: string[];
-}> {
+): Promise<InsightResult> {
   const transcript = history
     .map((t) => `${t.speaker === "ai" ? "Moderator" : "Participant"}: ${t.text}`)
     .join("\n");
@@ -193,26 +462,19 @@ Extract structured insights. Respond ONLY with strict JSON in this shape:
 
 Each array should contain 2-5 concise, specific, evidence-based bullets grounded in what the participant actually said. Recommendations should be actionable next steps for the product team.`;
 
-  let message;
+  let raw = "";
   try {
-    message = await anthropic.messages.create({
-      model: ANTHROPIC_MODEL,
-      max_tokens: 8192,
-      messages: [{ role: "user", content: prompt }],
-    });
+    ({ text: raw } = await createAITextWithFallback({
+      maxOutputTokens: 8192,
+      input: prompt,
+    }, "AI insight generation"));
   } catch (err) {
-    logger.error({ err, model: ANTHROPIC_MODEL }, "Anthropic insight generation failed");
-    return {
-      summary: "The interview was completed, but AI insight generation was unavailable. Please check the Anthropic API key, model access, quota, and Render logs.",
-      painPoints: [],
-      userGoals: [],
-      featureRequests: [],
-      recommendations: [],
-    };
+    logger.error(
+      { err, openAIModels: configuredOpenAIModels(), anthropicModels: configuredAnthropicModels() },
+      "All AI insight generation attempts failed",
+    );
+    return fallbackInsightsFromTranscript(product, goal, history);
   }
-
-  const block = message.content[0];
-  const raw = block && block.type === "text" ? block.text : "{}";
 
   try {
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -225,7 +487,7 @@ Each array should contain 2-5 concise, specific, evidence-based bullets grounded
       recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations.filter((s: unknown) => typeof s === "string") : [],
     };
   } catch {
-    return { summary: raw.slice(0, 500), painPoints: [], userGoals: [], featureRequests: [], recommendations: [] };
+    return fallbackInsightsFromTranscript(product, goal, history);
   }
 }
 

@@ -15,7 +15,7 @@ An AI-powered UX research platform. Researchers create studies, invite participa
 | Frontend | React 19, Vite, TailwindCSS v4, TanStack Query, wouter |
 | API | Node.js, Express 5, TypeScript |
 | Database | PostgreSQL (Drizzle ORM) |
-| AI Moderator | Anthropic Claude (`claude-sonnet-4-6`) |
+| AI Moderator | OpenAI Responses API (`gpt-5.4-mini`) with optional Anthropic fallback |
 | Voice I/O | Browser Web Speech API (STT + TTS) |
 | Avatar videos | HeyGen API (optional) |
 | Email | Resend API / SMTP fallback |
@@ -46,7 +46,8 @@ This is the standard split-deployment setup. The frontend is a static React buil
    | Variable | Value |
    |----------|-------|
    | `DATABASE_URL` | Your Supabase connection string |
-   | `ANTHROPIC_API_KEY` | Your Anthropic key |
+   | `OPENAI_API_KEY` | Your OpenAI API key |
+   | `OPENAI_MODEL` | `gpt-5.4-mini` |
    | `SESSION_SECRET` | Any long random string (`openssl rand -hex 32`) |
    | `ALLOWED_ORIGINS` | Your Vercel URL — fill in after step 3 (e.g. `https://insightly.vercel.app`) |
    | `FRONTEND_URL` | Your Vercel URL, used in invite email links |
@@ -130,8 +131,12 @@ Open **http://localhost:3000** in your browser. The frontend proxies all `/api/*
 |----------|----------|-------------|
 | `DATABASE_URL` | ✅ | PostgreSQL connection string (Supabase, Neon, Railway, or local) |
 | `SESSION_SECRET` | ✅ | Long random string to sign session cookies |
-| `ANTHROPIC_API_KEY` | ✅ | Anthropic Claude API key — [console.anthropic.com](https://console.anthropic.com) |
-| `ANTHROPIC_MODEL` | ❌ | Claude API model ID (default `claude-sonnet-4-6`) |
+| `OPENAI_API_KEY` | ✅ | OpenAI API key used for interview turns and insights |
+| `OPENAI_MODEL` | ❌ | OpenAI model ID (default `gpt-5.4-mini`) |
+| `OPENAI_FALLBACK_MODELS` | ❌ | Comma-separated backup OpenAI model IDs |
+| `ANTHROPIC_API_KEY` | ❌ | Optional Anthropic fallback key |
+| `ANTHROPIC_MODEL` | ❌ | Claude API model ID (default `claude-sonnet-4-20250514`) |
+| `ANTHROPIC_FALLBACK_MODELS` | ❌ | Comma-separated backup Claude model IDs used if the primary model is unavailable |
 | `ALLOWED_ORIGINS` | ✅ (production) | Comma-separated list of permitted frontend origins, e.g. `https://insightly.vercel.app` |
 | `FRONTEND_URL` | ✅ (production email) | Public frontend URL used in invite emails, e.g. `https://insightly.vercel.app` |
 | `NODE_ENV` | ✅ (production) | Set to `production` on hosted environments |
