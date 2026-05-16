@@ -5,6 +5,7 @@ import {
   useSubmitSessionTurn,
   useEndSession,
   getGetSessionQueryKey,
+  type SessionDetail,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -232,7 +233,7 @@ const LANG_LABEL: Record<string, string> = {
 
 /* ── Types ────────────────────────────────────────────────── */
 type Phase = "idle" | "speaking" | "listening" | "thinking" | "done";
-const SILENCE_MS = 2200;
+const SILENCE_MS = 950;
 
 /* ── Soundwave bar configs ────────────────────────────────── */
 const BARS = [
@@ -731,9 +732,21 @@ export default function Interview({ sessionId }: { sessionId: string }) {
     submitMut.mutate(
       { sessionId, data: { participantText: text, preferredLanguage: newLang ?? voiceLangRef.current } },
       {
-        onSuccess: () => {
+        onSuccess: (data) => {
           submittingRef.current = false;
           finalTextRef.current = "";
+          qc.setQueryData<SessionDetail>(getGetSessionQueryKey(sessionId), (prev) =>
+            prev
+              ? {
+                  ...prev,
+                  transcript: data.transcript,
+                  session: {
+                    ...prev.session,
+                    status: data.isFinal ? "completed" : prev.session.status,
+                  },
+                }
+              : prev,
+          );
           qc.invalidateQueries({ queryKey: getGetSessionQueryKey(sessionId) });
         },
         onError: () => {

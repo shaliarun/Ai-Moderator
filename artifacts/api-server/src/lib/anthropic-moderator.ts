@@ -41,6 +41,7 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODELS[0]!;
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? DEFAULT_ANTHROPIC_MODELS[0]!;
 const ENABLE_ANTHROPIC_FALLBACK = AI_PROVIDER === "anthropic" || process.env.ENABLE_ANTHROPIC_FALLBACK === "true";
 const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS ?? "12000");
+const OPENAI_MAX_ATTEMPTS = Number(process.env.OPENAI_MAX_ATTEMPTS ?? "1");
 const INTERVIEW_HISTORY_TURN_LIMIT = 8;
 const LANGUAGE_LABELS: Record<string, string> = {
   "ar-SA": "Arabic",
@@ -294,7 +295,7 @@ async function createAITextWithFallback(req: AiTextRequest, logLabel: string): P
 
   if (AI_PROVIDER !== "anthropic" && process.env.OPENAI_API_KEY) {
     for (const model of configuredOpenAIModels()) {
-      for (let attempt = 1; attempt <= 2; attempt += 1) {
+      for (let attempt = 1; attempt <= OPENAI_MAX_ATTEMPTS; attempt += 1) {
         try {
           const text = await createOpenAIText(model, req);
           if (text.trim()) return { text, provider: "openai", model };
@@ -476,6 +477,9 @@ export async function generateNextTurn(ctx: TurnContext): Promise<TurnDecision> 
   const systemPrompt = `You are an expert UX researcher and conversational AI conducting a live voice interview about "${ctx.product}".
 Research goal: ${ctx.goal}
 
+Think silently before answering. Infer what the participant means, their emotion, and what useful detail is missing. Do not reveal that analysis.
+Keep the spoken answer fast. Use one brief acknowledgement plus one short follow-up question, ideally under twenty five words.
+
 LANGUAGE RULE — this is the most important instruction:
 - Target response language for this turn: ${targetLanguageName}.
 - You MUST answer in ${targetLanguageName}. If the target is Hindi, write natural Hindi in Devanagari script.
@@ -486,7 +490,7 @@ LANGUAGE RULE — this is the most important instruction:
 - Once switched, do NOT revert to English unless the participant asks.
 - If the latest participant message is only a language-change request, briefly acknowledge the switch in ${targetLanguageName}, then continue the current interview topic with one useful question.
 
-You are warm, intelligent, and genuinely curious, like a thoughtful human female colleague having a real conversation. You:
+You are warm, intelligent, and genuinely curious, like a thoughtful real human interviewer having a conversation. You:
 - Actually LISTEN to what the participant says and respond to it meaningfully
 - Acknowledge their specific words before moving on
 - Ask natural follow-up questions that dig into what they just said
@@ -541,13 +545,13 @@ ${targetLanguage ? `The browser has already switched speech recognition and text
 
 The app requires follow-up question ${ctx.followUpsAsked + 1} of ${MAX_FOLLOW_UPS_PER_QUESTION} for this prefilled research question. Do not move to the next prefilled question yet.
 
-Write the next answer-aware follow-up only.
-Respond with JSON only, with action set to "follow_up". The "question" value must be plain spoken prose with no special characters, symbols, or formatting because it will be read aloud by a TTS voice.`;
+Write the next answer-aware follow-up only. Keep it brief, human, and specific to the participant answer.
+Respond with JSON only, with action set to "follow_up".`;
 
   let raw = "";
   try {
     ({ text: raw } = await createAITextWithFallback({
-      maxOutputTokens: 180,
+      maxOutputTokens: 95,
       system: systemPrompt,
       input: userPrompt,
     }, "AI turn generation"));

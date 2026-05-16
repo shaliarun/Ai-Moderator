@@ -15,6 +15,7 @@ import {
   generateInsightsFromTranscript,
   buildGreeting,
 } from "../lib/anthropic-moderator";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -234,47 +235,47 @@ router.post("/sessions/:sessionId/turn", async (req, res) => {
     preferredLanguage: body.preferredLanguage,
   });
 
-  await db.insert(transcriptTurnsTable).values({
+  const [aiTurn] = await db.insert(transcriptTurnsTable).values({
     sessionId,
     speaker: "ai",
     text: decision.aiQuestion,
-  });
+  }).returning();
 
+  let sessionUpdate: Promise<unknown>;
   if (decision.action === "follow_up") {
-    await db
+    sessionUpdate = db
       .update(sessionsTable)
       .set({ followUpsAsked: session.followUpsAsked + 1 })
       .where(eq(sessionsTable.id, sessionId));
   } else if (decision.action === "next_question") {
-    await db
+    sessionUpdate = db
       .update(sessionsTable)
       .set({ questionIndex: session.questionIndex + 1, followUpsAsked: 0 })
       .where(eq(sessionsTable.id, sessionId));
   } else if (decision.action === "wrap_up") {
-    await db
+    sessionUpdate = db
       .update(sessionsTable)
       .set({ status: "completed", endedAt: new Date() })
       .where(eq(sessionsTable.id, sessionId));
+    void sessionUpdate.catch((err) => logger.error({ err }, "Failed to update completed session"));
     if (session.participantId) {
-      await db
+      void db
         .update(participantsTable)
         .set({ status: "completed" })
-        .where(eq(participantsTable.id, session.participantId));
+        .where(eq(participantsTable.id, session.participantId))
+        .catch((err) => logger.error({ err }, "Failed to mark participant completed"));
     }
+  } else {
+    sessionUpdate = Promise.resolve();
   }
-
-  const finalTurns = await db
-    .select()
-    .from(transcriptTurnsTable)
-    .where(eq(transcriptTurnsTable.sessionId, sessionId))
-    .orderBy(asc(transcriptTurnsTable.createdAt));
-
-  const tagsMap = await getTagsForTurns(finalTurns.map((t) => t.id));
+  if (decision.action !== "wrap_up") {
+    void sessionUpdate.catch((err) => logger.error({ err }, "Failed to update session state"));
+  }
 
   res.json({
     aiQuestion: decision.aiQuestion,
     isFinal: decision.isFinal,
-    transcript: finalTurns.map((t) => serializeTurn(t, tagsMap.get(t.id) ?? [])),
+    transcript: [...history, aiTurn].map((t) => serializeTurn(t)),
   });
 });
 
