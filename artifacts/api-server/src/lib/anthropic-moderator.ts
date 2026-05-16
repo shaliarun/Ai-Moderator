@@ -35,8 +35,11 @@ const DEFAULT_ANTHROPIC_MODELS = [
   "claude-3-5-haiku-20241022",
   "claude-3-haiku-20240307",
 ];
+const AI_PROVIDER = (process.env.AI_PROVIDER ?? "openai").toLowerCase();
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODELS[0]!;
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? DEFAULT_ANTHROPIC_MODELS[0]!;
+const ENABLE_ANTHROPIC_FALLBACK = AI_PROVIDER === "anthropic" || process.env.ENABLE_ANTHROPIC_FALLBACK === "true";
+const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS ?? "12000");
 type AiTextRequest = { system?: string; input: string; maxOutputTokens: number };
 type AnthropicMessageParams = {
   max_tokens: number;
@@ -82,6 +85,26 @@ function isRetryableProviderError(err: unknown): boolean {
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function timeoutError(label: string): Error & { status: number } {
+  const err = new Error(`${label} timed out.`) as Error & { status: number };
+  err.status = 408;
+  return err;
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(timeoutError(label)), ms);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 async function createAnthropicMessageWithFallback(
@@ -158,19 +181,32 @@ async function createOpenAIText(model: string, req: AiTextRequest): Promise<stri
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OpenAI is not configured.");
 
-  const resp = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      instructions: req.system,
-      input: req.input,
-      max_output_tokens: req.maxOutputTokens,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+  let resp: Response;
+  try {
+    resp = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        instructions: req.system,
+        input: req.input,
+        max_output_tokens: req.maxOutputTokens,
+      }),
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw timeoutError("OpenAI request");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!resp.ok) {
     throw await openAIResponseError(resp);
@@ -183,7 +219,7 @@ async function createOpenAIText(model: string, req: AiTextRequest): Promise<stri
 async function createAITextWithFallback(req: AiTextRequest, logLabel: string): Promise<{ text: string; provider: string; model: string }> {
   let lastError: unknown;
 
-  if (process.env.OPENAI_API_KEY) {
+  if (AI_PROVIDER !== "anthropic" && process.env.OPENAI_API_KEY) {
     for (const model of configuredOpenAIModels()) {
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         try {
@@ -201,18 +237,20 @@ async function createAITextWithFallback(req: AiTextRequest, logLabel: string): P
     }
   }
 
-  try {
-    const { message, model } = await createAnthropicMessageWithFallback({
-      max_tokens: req.maxOutputTokens,
-      ...(req.system ? { system: req.system } : {}),
-      messages: [{ role: "user", content: req.input }],
-    }, logLabel);
-    const block = message.content[0];
-    const text = block && block.type === "text" ? block.text ?? "" : "";
-    if (text.trim()) return { text, provider: "anthropic", model };
-  } catch (err) {
-    lastError = err;
-    logger.warn({ err, models: configuredAnthropicModels() }, `${logLabel} failed with Anthropic`);
+  if (ENABLE_ANTHROPIC_FALLBACK) {
+    try {
+      const { message, model } = await createAnthropicMessageWithFallback({
+        max_tokens: req.maxOutputTokens,
+        ...(req.system ? { system: req.system } : {}),
+        messages: [{ role: "user", content: req.input }],
+      }, logLabel);
+      const block = message.content[0];
+      const text = block && block.type === "text" ? block.text ?? "" : "";
+      if (text.trim()) return { text, provider: "anthropic", model };
+    } catch (err) {
+      lastError = err;
+      logger.warn({ err, models: configuredAnthropicModels() }, `${logLabel} failed with Anthropic`);
+    }
   }
 
   throw lastError ?? new Error(`${logLabel} failed with every AI provider.`);
@@ -224,14 +262,27 @@ function fallbackTurn(ctx: TurnContext): TurnDecision {
 
   if (canFollowUp && participantText.length > 0) {
     const lower = participantText.toLowerCase();
+    const wantsToStop = participantWantsToStop(lower);
+    const asksQuestion =
+      /\b(i have (one )?question|can i ask|question from you|ask you|what about|why|how do you)\b/.test(lower);
     const isVeryShort = participantText.split(/\s+/).filter(Boolean).length < 8;
     const isNegative =
       /\b(not good|not working|bad|difficult|hard|frustrating|problem|issue|struggle|annoying|poor|slow|confusing|hate|avoid)\b/.test(lower);
     const wantsSomething =
       /\b(want|need|wish|prefer|expect|should|could|better|improve|missing)\b/.test(lower);
 
+    if (wantsToStop) {
+      return {
+        aiQuestion: "Of course. We can pause here. Thank you for taking the time to speak with me today.",
+        action: "wrap_up",
+        isFinal: true,
+      };
+    }
+
     return {
-      aiQuestion: isNegative
+      aiQuestion: asksQuestion
+        ? "Sure, go ahead. What would you like to ask before we continue?"
+        : isNegative
         ? "I hear you, that does not sound like a good experience. What part of it creates the biggest problem for you?"
         : wantsSomething
           ? "That is useful to hear. What would make that feel better or easier for you?"
@@ -259,11 +310,46 @@ function fallbackTurn(ctx: TurnContext): TurnDecision {
   };
 }
 
+function participantWantsToStop(text: string): boolean {
+  return /\b(talk later|later|pause|stop|end|leave|bye|not now|can't continue|cannot continue)\b/.test(text);
+}
+
+function nextMainQuestionOrWrap(ctx: TurnContext): TurnDecision {
+  const nextQuestion = ctx.questions[ctx.questionIndex + 1];
+  if (nextQuestion) {
+    return {
+      aiQuestion: nextQuestion,
+      action: "next_question",
+      isFinal: false,
+    };
+  }
+
+  return {
+    aiQuestion: "Thank you so much for your time today. This has been genuinely helpful, and I really appreciate you sharing your thoughts with me.",
+    action: "wrap_up",
+    isFinal: true,
+  };
+}
+
 export async function generateNextTurn(ctx: TurnContext): Promise<TurnDecision> {
   const remainingQuestions = ctx.questions.slice(ctx.questionIndex + 1);
   const currentQuestion = ctx.questions[ctx.questionIndex];
   const isLastQuestion = remainingQuestions.length === 0;
   const canFollowUp = ctx.followUpsAsked < MAX_FOLLOW_UPS_PER_QUESTION;
+  const participantText = ctx.participantText.trim();
+  const wantsToStop = participantWantsToStop(participantText.toLowerCase());
+
+  if (wantsToStop) {
+    return {
+      aiQuestion: "Of course. We can pause here. Thank you for taking the time to speak with me today.",
+      action: "wrap_up",
+      isFinal: true,
+    };
+  }
+
+  if (!canFollowUp) {
+    return nextMainQuestionOrWrap(ctx);
+  }
 
   const transcript = ctx.history
     .map((t) => `${t.speaker === "ai" ? "Moderator" : "Participant"}: ${t.text}`)
@@ -302,14 +388,14 @@ SPEECH FORMAT — your response will be read aloud word-for-word by a text-to-sp
 - Only allowed punctuation: period (.), comma (,), question mark (?), exclamation mark (!), apostrophe ('), and quotation marks when quoting speech.
 - If writing in a non-Latin script (Hindi, Arabic, Chinese, etc.) follow the same rules — no formatting characters, only natural prose punctuation for that language.
 
-Decision:
-- "follow_up": the answer was interesting, thin, or leaves something worth exploring — ask one more probing question about what they just said
-- "next_question": you have enough depth on this topic — transition naturally into the next research area
-- "wrap_up": all topics are covered — close warmly
-
-For "next_question": smooth 1–2 sentence response that briefly acknowledges what they said, then transitions into the next topic naturally. Keep the research intent but make it conversational.
-For "follow_up": respond to what they specifically said, then ask one short open-ended probing question.
-For "wrap_up": thank them genuinely and close warmly, no more questions.
+Interview structure:
+- The app asks one prefilled research question.
+- After the participant answers, you write an answer-aware follow-up.
+- The app asks exactly two follow-up questions for each prefilled research question.
+- The app decides when to move to the next prefilled research question.
+- For this turn, action must be "follow_up" and you must not ask the next prefilled research question.
+For this turn, respond to what the participant specifically said, then ask one short open-ended follow-up question.
+Do not ask the next prefilled research question.
 
 Respond ONLY with strict JSON: {"action": "follow_up" | "next_question" | "wrap_up", "question": "..."}
 The "question" field MUST:
@@ -330,8 +416,10 @@ ${transcript}
 
 Participant just responded: "${ctx.participantText}"
 
-Now decide: should you follow up on what they said, transition to the next research topic, or wrap up?
-Respond with JSON only. The "question" value must be plain spoken prose with no special characters, symbols, or formatting — it will be read aloud by a TTS voice.`;
+The app requires follow-up question ${ctx.followUpsAsked + 1} of ${MAX_FOLLOW_UPS_PER_QUESTION} for this prefilled research question. Do not move to the next prefilled question yet.
+
+Write the next answer-aware follow-up only.
+Respond with JSON only, with action set to "follow_up". The "question" value must be plain spoken prose with no special characters, symbols, or formatting because it will be read aloud by a TTS voice.`;
 
   let raw = "";
   try {
@@ -360,14 +448,10 @@ Respond with JSON only. The "question" value must be plain spoken prose with no 
     return fallbackTurn(ctx);
   }
 
-  let action = parsed.action as "follow_up" | "next_question" | "wrap_up";
-  if (action === "follow_up" && !canFollowUp) action = isLastQuestion ? "wrap_up" : "next_question";
-  if (action === "next_question" && isLastQuestion) action = "wrap_up";
-
   return {
     aiQuestion: parsed.question,
-    action,
-    isFinal: action === "wrap_up",
+    action: "follow_up",
+    isFinal: false,
   };
 }
 

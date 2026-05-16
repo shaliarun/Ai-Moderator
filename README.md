@@ -132,8 +132,11 @@ Open **http://localhost:3000** in your browser. The frontend proxies all `/api/*
 | `DATABASE_URL` | ✅ | PostgreSQL connection string (Supabase, Neon, Railway, or local) |
 | `SESSION_SECRET` | ✅ | Long random string to sign session cookies |
 | `OPENAI_API_KEY` | ✅ | OpenAI API key used for interview turns and insights |
+| `AI_PROVIDER` | ❌ | Primary AI provider. Set to `openai` |
 | `OPENAI_MODEL` | ❌ | OpenAI model ID (default `gpt-5.4-mini`) |
 | `OPENAI_FALLBACK_MODELS` | ❌ | Comma-separated backup OpenAI model IDs |
+| `OPENAI_TIMEOUT_MS` | ❌ | Maximum time to wait for one OpenAI request before falling back (default `12000`) |
+| `ENABLE_ANTHROPIC_FALLBACK` | ❌ | Set to `true` only if you want Anthropic tried after OpenAI |
 | `ANTHROPIC_API_KEY` | ❌ | Optional Anthropic fallback key |
 | `ANTHROPIC_MODEL` | ❌ | Claude API model ID (default `claude-sonnet-4-20250514`) |
 | `ANTHROPIC_FALLBACK_MODELS` | ❌ | Comma-separated backup Claude model IDs used if the primary model is unavailable |

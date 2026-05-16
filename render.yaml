@@ -13,10 +13,16 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: AI_PROVIDER
+        value: openai
       - key: OPENAI_MODEL
         sync: false
       - key: OPENAI_FALLBACK_MODELS
         sync: false
+      - key: OPENAI_TIMEOUT_MS
+        value: "12000"
+      - key: ENABLE_ANTHROPIC_FALLBACK
+        value: "false"
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: ANTHROPIC_MODEL
