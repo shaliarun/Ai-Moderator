@@ -8,6 +8,7 @@ export interface TurnContext {
   followUpsAsked: number;
   history: { speaker: "ai" | "participant"; text: string }[];
   participantText: string;
+  preferredLanguage?: string;
 }
 
 export interface TurnDecision {
@@ -26,9 +27,9 @@ export interface InsightResult {
 
 const MAX_FOLLOW_UPS_PER_QUESTION = 2;
 const DEFAULT_OPENAI_MODELS = [
-  "gpt-5.4-mini",
-  "gpt-5-mini",
+  "gpt-4.1-nano",
   "gpt-4.1-mini",
+  "gpt-4o-mini",
 ];
 const DEFAULT_ANTHROPIC_MODELS = [
   "claude-sonnet-4-20250514",
@@ -40,6 +41,33 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODELS[0]!;
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL ?? DEFAULT_ANTHROPIC_MODELS[0]!;
 const ENABLE_ANTHROPIC_FALLBACK = AI_PROVIDER === "anthropic" || process.env.ENABLE_ANTHROPIC_FALLBACK === "true";
 const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_TIMEOUT_MS ?? "12000");
+const INTERVIEW_HISTORY_TURN_LIMIT = 8;
+const LANGUAGE_LABELS: Record<string, string> = {
+  "ar-SA": "Arabic",
+  "bn-IN": "Bengali",
+  "de-DE": "German",
+  "en-US": "English",
+  "es-ES": "Spanish",
+  "fr-FR": "French",
+  "gu-IN": "Gujarati",
+  "hi-IN": "Hindi",
+  "id-ID": "Indonesian",
+  "it-IT": "Italian",
+  "ja-JP": "Japanese",
+  "kn-IN": "Kannada",
+  "ko-KR": "Korean",
+  "ml-IN": "Malayalam",
+  "mr-IN": "Marathi",
+  "nl-NL": "Dutch",
+  "pa-IN": "Punjabi",
+  "pt-BR": "Portuguese",
+  "ru-RU": "Russian",
+  "ta-IN": "Tamil",
+  "te-IN": "Telugu",
+  "tr-TR": "Turkish",
+  "ur-IN": "Urdu",
+  "zh-CN": "Chinese",
+};
 type AiTextRequest = { system?: string; input: string; maxOutputTokens: number };
 type AnthropicMessageParams = {
   max_tokens: number;
@@ -66,6 +94,51 @@ function configuredAnthropicModels(): string[] {
   ];
 
   return [...new Set(configured.map((model) => model.trim()).filter(Boolean))];
+}
+
+function normalizeLanguageCode(value?: string | null): string | undefined {
+  const code = value?.trim();
+  if (!code || !/^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(code)) return undefined;
+  return LANGUAGE_LABELS[code] ? code : undefined;
+}
+
+function detectRequestedLanguage(text: string): string | undefined {
+  const lower = text.toLowerCase();
+  const hasRequest = /\b(speak|change|switch|talk|use|language|in|mein|me|bolo)\b/i.test(lower);
+  if (!hasRequest) return undefined;
+
+  const matches: Array<[string, RegExp]> = [
+    ["hi-IN", /\b(hindi|hindi mein|hindi me)\b/i],
+    ["en-US", /\b(english|angrezi)\b/i],
+    ["ta-IN", /\b(tamil)\b/i],
+    ["te-IN", /\b(telugu)\b/i],
+    ["mr-IN", /\b(marathi)\b/i],
+    ["bn-IN", /\b(bengali|bangla)\b/i],
+    ["gu-IN", /\b(gujarati)\b/i],
+    ["kn-IN", /\b(kannada)\b/i],
+    ["ml-IN", /\b(malayalam)\b/i],
+    ["pa-IN", /\b(punjabi)\b/i],
+    ["ur-IN", /\b(urdu)\b/i],
+    ["fr-FR", /\b(french|francais)\b/i],
+    ["es-ES", /\b(spanish|espanol)\b/i],
+    ["de-DE", /\b(german|deutsch)\b/i],
+    ["ar-SA", /\b(arabic)\b/i],
+  ];
+
+  return matches.find(([, pattern]) => pattern.test(lower))?.[0];
+}
+
+function responseLanguage(ctx: TurnContext): string | undefined {
+  return normalizeLanguageCode(ctx.preferredLanguage) ?? detectRequestedLanguage(ctx.participantText);
+}
+
+function responseLanguageName(ctx: TurnContext): string {
+  const code = responseLanguage(ctx);
+  return code ? `${LANGUAGE_LABELS[code]} (${code})` : "English (en-US)";
+}
+
+function isEnglishLanguage(code?: string): boolean {
+  return !code || code.startsWith("en");
 }
 
 function getErrorStatus(err: unknown): number | undefined {
@@ -259,6 +332,8 @@ async function createAITextWithFallback(req: AiTextRequest, logLabel: string): P
 function fallbackTurn(ctx: TurnContext): TurnDecision {
   const participantText = ctx.participantText.trim();
   const canFollowUp = ctx.followUpsAsked < MAX_FOLLOW_UPS_PER_QUESTION;
+  const lang = responseLanguage(ctx);
+  const useHindi = lang === "hi-IN";
 
   if (canFollowUp && participantText.length > 0) {
     const lower = participantText.toLowerCase();
@@ -273,22 +348,34 @@ function fallbackTurn(ctx: TurnContext): TurnDecision {
 
     if (wantsToStop) {
       return {
-        aiQuestion: "Of course. We can pause here. Thank you for taking the time to speak with me today.",
+        aiQuestion: useHindi
+          ? "बिल्कुल, हम यहीं रुक सकते हैं. आज अपने विचार साझा करने के लिए आपका बहुत धन्यवाद."
+          : "Of course. We can pause here. Thank you for taking the time to speak with me today.",
         action: "wrap_up",
         isFinal: true,
       };
     }
 
     return {
-      aiQuestion: asksQuestion
-        ? "Sure, go ahead. What would you like to ask before we continue?"
-        : isNegative
-        ? "I hear you, that does not sound like a good experience. What part of it creates the biggest problem for you?"
-        : wantsSomething
-          ? "That is useful to hear. What would make that feel better or easier for you?"
-          : isVeryShort
-            ? "Got it. Could you tell me a bit more about what happened there?"
-            : "That is helpful to know. Could you share a specific example of that?",
+      aiQuestion: useHindi
+        ? asksQuestion
+          ? "ज़रूर, बताइए. आगे बढ़ने से पहले आप क्या पूछना चाहेंगे?"
+          : isNegative
+            ? "मैं समझ रही हूँ, यह अनुभव अच्छा नहीं लग रहा. इसमें आपके लिए सबसे बड़ी परेशानी कौन सी बात बनती है?"
+            : wantsSomething
+              ? "यह जानना उपयोगी है. इसे आपके लिए बेहतर या आसान क्या बना सकता है?"
+              : isVeryShort
+                ? "समझ गई. क्या आप इसके बारे में थोड़ा और बता सकते हैं?"
+                : "यह जानना मददगार है. क्या आप इसका कोई खास उदाहरण साझा कर सकते हैं?"
+        : asksQuestion
+          ? "Sure, go ahead. What would you like to ask before we continue?"
+          : isNegative
+            ? "I hear you, that does not sound like a good experience. What part of it creates the biggest problem for you?"
+            : wantsSomething
+              ? "That is useful to hear. What would make that feel better or easier for you?"
+              : isVeryShort
+                ? "Got it. Could you tell me a bit more about what happened there?"
+                : "That is helpful to know. Could you share a specific example of that?",
       action: "follow_up",
       isFinal: false,
     };
@@ -304,7 +391,9 @@ function fallbackTurn(ctx: TurnContext): TurnDecision {
   }
 
   return {
-    aiQuestion: "Thank you so much for your time today. This has been genuinely helpful, and I really appreciate you sharing your thoughts with me.",
+    aiQuestion: useHindi
+      ? "आज समय देने के लिए आपका बहुत धन्यवाद. आपकी बातें सच में उपयोगी रही हैं."
+      : "Thank you so much for your time today. This has been genuinely helpful, and I really appreciate you sharing your thoughts with me.",
     action: "wrap_up",
     isFinal: true,
   };
@@ -314,18 +403,40 @@ function participantWantsToStop(text: string): boolean {
   return /\b(talk later|later|pause|stop|end|leave|bye|not now|can't continue|cannot continue)\b/.test(text);
 }
 
-function nextMainQuestionOrWrap(ctx: TurnContext): TurnDecision {
+async function localizeStaticText(ctx: TurnContext, text: string, purpose: string): Promise<string> {
+  const lang = responseLanguage(ctx);
+  if (isEnglishLanguage(lang)) return text;
+
+  try {
+    const { text: localized } = await createAITextWithFallback({
+      maxOutputTokens: 140,
+      system: `Translate the provided ${purpose} into ${responseLanguageName(ctx)} for a live voice interview. Keep the exact meaning. Return only the translated sentence in plain spoken prose. No markdown, no labels, no brackets.`,
+      input: text,
+    }, `AI ${purpose} localization`);
+
+    return localized.trim() || text;
+  } catch (err) {
+    logger.warn({ err, language: lang }, `Could not localize ${purpose}`);
+    return text;
+  }
+}
+
+async function nextMainQuestionOrWrap(ctx: TurnContext): Promise<TurnDecision> {
   const nextQuestion = ctx.questions[ctx.questionIndex + 1];
   if (nextQuestion) {
     return {
-      aiQuestion: nextQuestion,
+      aiQuestion: await localizeStaticText(ctx, nextQuestion, "next prefilled interview question"),
       action: "next_question",
       isFinal: false,
     };
   }
 
   return {
-    aiQuestion: "Thank you so much for your time today. This has been genuinely helpful, and I really appreciate you sharing your thoughts with me.",
+    aiQuestion: await localizeStaticText(
+      ctx,
+      "Thank you so much for your time today. This has been genuinely helpful, and I really appreciate you sharing your thoughts with me.",
+      "interview wrap up",
+    ),
     action: "wrap_up",
     isFinal: true,
   };
@@ -338,10 +449,16 @@ export async function generateNextTurn(ctx: TurnContext): Promise<TurnDecision> 
   const canFollowUp = ctx.followUpsAsked < MAX_FOLLOW_UPS_PER_QUESTION;
   const participantText = ctx.participantText.trim();
   const wantsToStop = participantWantsToStop(participantText.toLowerCase());
+  const targetLanguage = responseLanguage(ctx);
+  const targetLanguageName = responseLanguageName(ctx);
 
   if (wantsToStop) {
     return {
-      aiQuestion: "Of course. We can pause here. Thank you for taking the time to speak with me today.",
+      aiQuestion: await localizeStaticText(
+        ctx,
+        "Of course. We can pause here. Thank you for taking the time to speak with me today.",
+        "interview pause message",
+      ),
       action: "wrap_up",
       isFinal: true,
     };
@@ -352,6 +469,7 @@ export async function generateNextTurn(ctx: TurnContext): Promise<TurnDecision> 
   }
 
   const transcript = ctx.history
+    .slice(-INTERVIEW_HISTORY_TURN_LIMIT)
     .map((t) => `${t.speaker === "ai" ? "Moderator" : "Participant"}: ${t.text}`)
     .join("\n");
 
@@ -359,11 +477,14 @@ export async function generateNextTurn(ctx: TurnContext): Promise<TurnDecision> 
 Research goal: ${ctx.goal}
 
 LANGUAGE RULE — this is the most important instruction:
-- Default language: English.
+- Target response language for this turn: ${targetLanguageName}.
+- You MUST answer in ${targetLanguageName}. If the target is Hindi, write natural Hindi in Devanagari script.
+- Default language is English only when no target language is provided.
 - If the participant speaks in a different language, immediately switch to that language and continue in it.
 - If the participant explicitly requests a language change (e.g. "speak in Hindi", "en français s'il vous plaît", "please switch to Spanish"), switch to that language immediately and stay in it for the rest of the interview.
 - Match their accent/dialect when possible (e.g. "Hindi" → respond in Hindi script; "Spanish" → Español; "French" → Français).
 - Once switched, do NOT revert to English unless the participant asks.
+- If the latest participant message is only a language-change request, briefly acknowledge the switch in ${targetLanguageName}, then continue the current interview topic with one useful question.
 
 You are warm, intelligent, and genuinely curious, like a thoughtful human female colleague having a real conversation. You:
 - Actually LISTEN to what the participant says and respond to it meaningfully
@@ -372,7 +493,7 @@ You are warm, intelligent, and genuinely curious, like a thoughtful human female
 - Handle tangents gracefully: gently bring it back on topic
 - If they ask you a question, answer it honestly then redirect
 - Sound like a real warm person, not a survey bot, vary your phrasing
-- Keep responses to 1 to 3 sentences maximum
+- Keep responses to one brief acknowledgement plus one short follow-up question.
 
 SPEECH FORMAT — your response will be read aloud word-for-word by a text-to-speech engine. The participant hears only what you write. Any formatting will be read as noise or cause the voice to stutter and stop. Follow these rules without exception:
 - Plain spoken sentences ONLY. Imagine dictating to someone on the phone.
@@ -415,6 +536,8 @@ Full conversation so far:
 ${transcript}
 
 Participant just responded: "${ctx.participantText}"
+Target response language: ${targetLanguageName}
+${targetLanguage ? `The browser has already switched speech recognition and text-to-speech to ${targetLanguage}. Match it exactly.` : ""}
 
 The app requires follow-up question ${ctx.followUpsAsked + 1} of ${MAX_FOLLOW_UPS_PER_QUESTION} for this prefilled research question. Do not move to the next prefilled question yet.
 
@@ -424,7 +547,7 @@ Respond with JSON only, with action set to "follow_up". The "question" value mus
   let raw = "";
   try {
     ({ text: raw } = await createAITextWithFallback({
-      maxOutputTokens: 600,
+      maxOutputTokens: 180,
       system: systemPrompt,
       input: userPrompt,
     }, "AI turn generation"));

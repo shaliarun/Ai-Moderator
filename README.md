@@ -15,7 +15,7 @@ An AI-powered UX research platform. Researchers create studies, invite participa
 | Frontend | React 19, Vite, TailwindCSS v4, TanStack Query, wouter |
 | API | Node.js, Express 5, TypeScript |
 | Database | PostgreSQL (Drizzle ORM) |
-| AI Moderator | OpenAI Responses API (`gpt-5.4-mini`) with optional Anthropic fallback |
+| AI Moderator | OpenAI Responses API (`gpt-4.1-nano`) with optional Anthropic fallback |
 | Voice I/O | Browser Web Speech API (STT + TTS) |
 | Avatar videos | HeyGen API (optional) |
 | Email | Resend API / SMTP fallback |
@@ -47,7 +47,7 @@ This is the standard split-deployment setup. The frontend is a static React buil
    |----------|-------|
    | `DATABASE_URL` | Your Supabase connection string |
    | `OPENAI_API_KEY` | Your OpenAI API key |
-   | `OPENAI_MODEL` | `gpt-5.4-mini` |
+   | `OPENAI_MODEL` | `gpt-4.1-nano` |
    | `SESSION_SECRET` | Any long random string (`openssl rand -hex 32`) |
    | `ALLOWED_ORIGINS` | Your Vercel URL — fill in after step 3 (e.g. `https://insightly.vercel.app`) |
    | `FRONTEND_URL` | Your Vercel URL, used in invite email links |
@@ -133,7 +133,7 @@ Open **http://localhost:3000** in your browser. The frontend proxies all `/api/*
 | `SESSION_SECRET` | ✅ | Long random string to sign session cookies |
 | `OPENAI_API_KEY` | ✅ | OpenAI API key used for interview turns and insights |
 | `AI_PROVIDER` | ❌ | Primary AI provider. Set to `openai` |
-| `OPENAI_MODEL` | ❌ | OpenAI model ID (default `gpt-5.4-mini`) |
+| `OPENAI_MODEL` | ❌ | OpenAI model ID (default `gpt-4.1-nano`) |
 | `OPENAI_FALLBACK_MODELS` | ❌ | Comma-separated backup OpenAI model IDs |
 | `OPENAI_TIMEOUT_MS` | ❌ | Maximum time to wait for one OpenAI request before falling back (default `12000`) |
 | `ENABLE_ANTHROPIC_FALLBACK` | ❌ | Set to `true` only if you want Anthropic tried after OpenAI |

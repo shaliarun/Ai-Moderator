@@ -16,9 +16,9 @@ services:
       - key: AI_PROVIDER
         value: openai
       - key: OPENAI_MODEL
-        sync: false
+        value: gpt-4.1-nano
       - key: OPENAI_FALLBACK_MODELS
-        sync: false
+        value: gpt-4.1-mini,gpt-4o-mini
       - key: OPENAI_TIMEOUT_MS
         value: "12000"
       - key: ENABLE_ANTHROPIC_FALLBACK
